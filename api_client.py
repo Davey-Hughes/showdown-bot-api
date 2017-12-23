@@ -45,7 +45,64 @@ class ShowdownConnection:
     def login(self, host, port, username, password=''):
         self.pokeSock.connect(host, port)
 
-        msg = json.dumps({'command': 'login', 'username': username, 'password': password})
+        msg = json.dumps({
+            'command': 'login',
+            'username': username,
+            'password': password
+        })
+
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        print(result)
+        return result == 'success'
+
+    def logout(self, room=''):
+        if room != '':
+            msg = json.dumps({
+                'command': 'logout',
+                'room': room
+            })
+        else:
+            msg = json.dumps({
+                'command': 'logout'
+            })
+
+        self.pokeSock.send(msg)
+        result = self.pokeSock.recv()
+
+    def send_challenge(self, user, gamefmt, room=''):
+        if room == '':
+            msg = json.dumps({
+                'command': 'send_challenge',
+                'user': user,
+                'format': gamefmt,
+                'room': room
+            })
+        else:
+            msg = json.dumps({
+                'command': 'send_challenge',
+                'user': user,
+                'format': gamefmt
+            })
+
+        self.pokeSock.send(msg)
+        result = self.pokeSock.recv()
+        return result == 'success'
+
+    def send_default(self, msg, room=''):
+        if room != '':
+            msg = json.dumps({
+                'command': 'send_default',
+                'showdown_cmd': msg,
+                'room': room
+            })
+        else:
+            msg = json.dumps({
+                'command': 'send_default',
+                'showdown_cmd': msg
+            })
+
+        self.pokeSock.send(msg)
+        result = self.pokeSock.recv()
+
+    def close(self):
+        self.pokeSock.close();

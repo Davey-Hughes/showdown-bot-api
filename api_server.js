@@ -35,8 +35,6 @@ function login(payload, conn) {
     client.on('login', function(user) {
         send_reply('success', conn);
         console.log('Logged in as:', user);
-        client.send('/join lobby', 'lobby')
-        client.send('hello', 'lobby')
     });
 
     client.on('error:login', function(err) {
@@ -44,7 +42,41 @@ function login(payload, conn) {
         send_reply('failed', conn);
     });
 
+    client.on('info:query', function(message) {
+        console.log(message);
+    });
+
     conn['pokeClient'] = client;
+}
+
+function logout(payload, conn) {
+    client = conn.pokeClient;
+    room = 'lobby';
+    if ('room' in payload) {
+        room = payload.room;
+    }
+
+    client.send('/logout', room)
+    send_reply('success', conn);
+}
+
+function send_challenge(payload, conn) {
+    client = conn.pokeClient;
+    msg = '/pm ' + payload.user + ', /challenge ' +
+          payload.user + ', ' + payload.format;
+    client.send(msg, 'global');
+    send_reply('success', conn);
+}
+
+function send_default(payload, conn) {
+    client = conn.pokeClient;
+    room = 'lobby';
+    if ('room' in payload) {
+        room = payload.room;
+    }
+
+    client.send(payload.showdown_cmd, room);
+    send_reply('success', conn);
 }
 
 function dispatch(data, conn) {
@@ -58,6 +90,19 @@ function dispatch(data, conn) {
     switch (payload.command) {
         case 'login':
             login(payload, conn);
+            break;
+        case 'logout':
+            logout(payload, conn);
+            break;
+        case 'send_challenge':
+            send_challenge(payload, conn);
+            break;
+        case 'send_default':
+            send_default(payload, conn);
+            break;
+        default:
+            console.log('Case not handled:' + payload.command);
+            send_reply('error', conn);
             break;
     }
 }
