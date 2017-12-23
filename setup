@@ -1,0 +1,22 @@
+#!/bin/bash
+
+use_nodeenv=false
+
+while getopts ":e" opt; do
+  case $opt in
+    e)
+      use_nodeenv=true
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      ;;
+  esac
+done
+
+if $use_nodeenv; then
+  npm install -g bufferpack
+  npm install -g pokemon-showdown-api
+else
+  npm install bufferpack
+  npm install pokemon-showdown-api
+fi
