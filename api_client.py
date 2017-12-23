@@ -86,7 +86,32 @@ class ShowdownConnection:
 
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        return result == 'success'
+
+        # try 10 times (and 10 seconds)
+        for i in range(10):
+            res_challenges, res_errors = self.get_challenges()
+            if res_challenges['challengeTo']:
+                if res_challenges['challengeTo']['to'] == user:
+                    return True
+
+            for error in res_errors:
+                if 'not found' in error or \
+                   'already challenging someone' in error or \
+                   'cancelled' in error:
+                    return False
+
+            time.sleep(1)
+
+        return False
+
+    def get_challenges(self):
+        msg = json.dumps({
+            'command': 'get_challenges'
+        })
+        self.pokeSock.send(msg)
+        res_challenges = self.pokeSock.recv()
+        res_errors = self.pokeSock.recv()
+        return res_challenges, res_errors
 
     def send_default(self, msg, room=''):
         if room != '':

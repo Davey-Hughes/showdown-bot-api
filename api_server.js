@@ -28,6 +28,9 @@ function login(payload, conn) {
     client = new PokeClient(websocket, verification);
     client.connect();
 
+    conn.challenges = {};
+    conn.challenge_errors = [];
+
     client.on('ready', function() {
         client.login(payload.username);
     });
@@ -46,19 +49,24 @@ function login(payload, conn) {
         if ('data' in message && 'message' in message.data) {
             if (message.data.message.search('/error') != -1 &&
                 message.data.message.search('not found') != -1) {
-                send_reply('failed', conn);
+                conn.challenge_errors.push(message.data.message);
             }
         }
     });
 
-    client.on('self:challenges', function(message) {
-        if (message.data.challengeTo != null &&
-            Object.keys(message.data.challengeTo).length != 0) {
-            send_reply('success', conn);
+    client.on('info:popup', function(message) {
+        if (message.data.search('You are already challenging') != -1 ||
+            message.data.search('You challenged less than 10' != -1)) {
+            conn.challenge_errors.push(message.data);
         }
     });
 
+    client.on('self:challenges', function(message) {
+        conn.challenges = message.data;
+    });
+
     client.on('message', function(message) {
+        //console.log(message);
     });
 
     conn['pokeClient'] = client;
@@ -80,6 +88,13 @@ function send_challenge(payload, conn) {
     msg = '/pm ' + payload.user + ', /challenge ' +
           payload.user + ', ' + payload.format;
     client.send(msg, 'global');
+    send_reply('sent', conn);
+}
+
+function get_challenges(conn) {
+    send_reply(conn.challenges, conn);
+    send_reply(conn.challenge_errors, conn);
+    conn.challenge_errors = []
 }
 
 function send_default(payload, conn) {
@@ -110,6 +125,9 @@ function dispatch(data, conn) {
             break;
         case 'send_challenge':
             send_challenge(payload, conn);
+            break;
+        case 'get_challenges':
+            get_challenges(conn);
             break;
         case 'send_default':
             send_default(payload, conn);
