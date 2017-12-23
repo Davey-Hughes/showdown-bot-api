@@ -42,8 +42,23 @@ function login(payload, conn) {
         send_reply('failed', conn);
     });
 
-    client.on('info:query', function(message) {
-        console.log(message);
+    client.on('chat:private', function(message) {
+        if ('data' in message && 'message' in message.data) {
+            if (message.data.message.search('/error') != -1 &&
+                message.data.message.search('not found') != -1) {
+                send_reply('failed', conn);
+            }
+        }
+    });
+
+    client.on('self:challenges', function(message) {
+        if (message.data.challengeTo != null &&
+            Object.keys(message.data.challengeTo).length != 0) {
+            send_reply('success', conn);
+        }
+    });
+
+    client.on('message', function(message) {
     });
 
     conn['pokeClient'] = client;
@@ -65,7 +80,6 @@ function send_challenge(payload, conn) {
     msg = '/pm ' + payload.user + ', /challenge ' +
           payload.user + ', ' + payload.format;
     client.send(msg, 'global');
-    send_reply('success', conn);
 }
 
 function send_default(payload, conn) {
