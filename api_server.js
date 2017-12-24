@@ -5,6 +5,8 @@ var PokeClient = require('pokemon-showdown-api').PokeClient;
 var websocket = 'ws://localhost:8000/showdown/websocket';
 var verification = 'https://play.pokemonshowdown.com/action.php';
 
+// console.log(typeof(PokeClient.MESSAGE_TYPES.BATTLE.ACTIONS.MAJOR.MOVE));
+
 function parse_data(data) {
     var lengthbuf = data.slice(0, 4);
     var length = pack.unpack('!I', lengthbuf)[0];
@@ -31,6 +33,18 @@ function login(payload, conn) {
     conn.challenges = {};
     conn.challenge_errors = [];
     conn.battles = [];
+    conn.actionList = [];
+    conn.turn = 0;
+
+    var actions = PokeClient.MESSAGE_TYPES.BATTLE.ACTIONS;
+
+    Object.keys(actions.MAJOR).forEach(function(key, index) {
+        conn.actionList.push(actions.MAJOR[key]);
+    });
+
+    Object.keys(actions.MINOR).forEach(function(key, index) {
+        conn.actionList.push(actions.MINOR[key]);
+    });
 
     client.on('ready', function() {
         client.login(payload.username);
@@ -68,11 +82,40 @@ function login(payload, conn) {
 
     client.on('room:title', function(message) {
         if (message.room.search('battle') != -1) {
+            message['myteam'] = {};
+            message['actions'] = [];
+            message.actions.push([]);
             conn.battles.push(message);
         }
     });
 
     client.on('message', function(message) {
+        if (message.type.toString().search('token:request') != -1) {
+            for (var i = 0, len = conn.battles.length; i < len; i++) {
+                if (conn.battles[i].room == message.room) {
+                    conn.battles[i].myteam = message.data;
+                }
+            }
+        }
+
+        if (conn.actionList.includes(message.type)) {
+            for (var i = 0, len = conn.battles.length; i < len; i++) {
+                if (conn.battles[i].room == message.room) {
+                    if (message.type.toString().search('token:turn') != -1) {
+                        conn.turn = Number(message.data);
+                        conn.battles[i].actions.push([]);
+                    } else {
+                        console.log(conn.turn);
+                        conn.battles[i].actions[conn.turn].push(message.data);
+                    }
+                }
+            }
+        }
+
+        if (message.type.toString().search('token:turn') != -1) {
+            console.log(message);
+        }
+
         // console.log(message);
     });
 
@@ -119,6 +162,56 @@ function send_default(payload, conn) {
     send_reply('success', conn);
 }
 
+function battle_get_myteam(payload, conn) {
+    for (var i = 0, len = conn.battles.length; i < len; i++) {
+        if (conn.battles[i].room == payload.room) {
+            reply = {};
+            if ('myteam' in conn.battles[i]) {
+                reply = conn.battles[i].myteam;
+            }
+
+            send_reply(reply, conn);
+            return;
+        }
+    }
+}
+
+function battle_get_actions(payload, conn) {
+    for (var i = 0, len = conn.battles.length; i < len; i++) {
+        if (conn.battles[i].room == payload.room) {
+            reply = {};
+            if ('actions' in conn.battles[i]) {
+                reply = conn.battles[i].actions;
+            }
+
+            send_reply(reply, conn);
+            return;
+        }
+    }
+}
+
+function battle_get_chat(payload, conn) {
+    send_reply('success', conn);
+}
+
+function battle_dispatch(payload, conn) {
+    switch (payload.battle_command) {
+        case 'get_myteam':
+            battle_get_myteam(payload, conn);
+            break;
+        case 'get_actions':
+            battle_get_actions(payload, conn);
+            break;
+        case 'get_chat':
+            battle_get_chat(payload, conn);
+            break;
+        default:
+            console.log('battle_command not handled: ' + payload.battle_command);
+            send_reply('error', conn);
+            break;
+    }
+}
+
 function dispatch(data, conn) {
     payload = parse_data(data);
 
@@ -142,6 +235,9 @@ function dispatch(data, conn) {
             break;
         case 'get_battles':
             get_battles(conn);
+            break;
+        case 'battle_action':
+            battle_dispatch(payload, conn);
             break;
         case 'send_default':
             send_default(payload, conn);

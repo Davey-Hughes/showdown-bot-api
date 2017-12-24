@@ -45,21 +45,43 @@ class PokeBattle:
         self.room = room
         self.challenger = challenger
 
-    def wrapper(self, func):
+    # TODO add safety so this can only be called properly
+    def _wrapper(self, func):
         func(self)
 
-        self.connection.lock.acquire()
+        self.connection.battle_lock.acquire()
         self.connection.battles.remove(self)
-        self.connection.lock.release()
+        self.connection.battle_lock.release()
         exit(0)
 
+    # tries to get data for up to 10 seconds. returns data if found, else
+    # returns None
+    def _get_wrapper(self, battle_command):
+        for i in range(10):
+            result = self.connection.send_battle_command(battle_command, self.room)
+            if result != {}:
+                return result
+
+            time.sleep(1)
+
+        return None
+
+    def get_myteam(self):
+        return self._get_wrapper('get_myteam')
+
+    def get_actions(self):
+        return self._get_wrapper('get_actions')
+
+    def get_chat(self):
+        return self._get_wrapper('get_chat')
 
 class ShowdownConnection:
     def __init__(self):
         self.pokeSock = PokeSockClient()
-        self.lock = Lock()
+        self.battle_lock = Lock()
         self.battles = []
         self.battle_processes = []
+        self.socket_lock = Lock()
 
     def login(self, host, port, username, password=''):
         self.username = username
@@ -71,8 +93,11 @@ class ShowdownConnection:
             'password': password
         })
 
+        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
+        self.socket_lock.release()
+
         return result == 'success'
 
     def logout(self, room=''):
@@ -86,8 +111,24 @@ class ShowdownConnection:
                 'command': 'logout'
             })
 
+        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
+        self.socket_lock.release()
+
+    def send_battle_command(self, battle_command, room):
+        msg = json.dumps({
+            'command': 'battle_action',
+            'battle_command': battle_command,
+            'room': room
+        })
+
+        self.socket_lock.acquire()
+        self.pokeSock.send(msg)
+        result = self.pokeSock.recv()
+        self.socket_lock.release()
+
+        return result
 
     def send_challenge(self, user, gamefmt, room=''):
         if room == '':
@@ -104,8 +145,10 @@ class ShowdownConnection:
                 'format': gamefmt
             })
 
+        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
+        self.socket_lock.release()
 
         # try 10 times (and 10 seconds)
         for i in range(10):
@@ -128,17 +171,25 @@ class ShowdownConnection:
         msg = json.dumps({
             'command': 'get_challenges'
         })
+
+        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         res_challenges = self.pokeSock.recv()
         res_errors = self.pokeSock.recv()
+        self.socket_lock.release()
+
         return res_challenges, res_errors
 
     def get_battles(self):
         msg = json.dumps({
             'command': 'get_battles'
         })
+
+        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
+        self.socket_lock.release()
+
         return result
 
 
@@ -162,11 +213,11 @@ class ShowdownConnection:
                             challenger += user
 
                     battle = PokeBattle(self, room, challenger)
-                    self.lock.acquire()
+                    self.battle_lock.acquire()
                     self.battles.append(battle)
-                    self.lock.release()
+                    self.battle_lock.release()
 
-                    p = Process(target=battle.wrapper, args=(accept,))
+                    p = Process(target=battle._wrapper, args=(accept,))
                     p.start()
                     self.battle_processes.append({
                         'room': room,
@@ -212,8 +263,10 @@ class ShowdownConnection:
                 'showdown_cmd': msg
             })
 
+        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
+        self.socket_lock.release()
 
     def close(self):
         self.pokeSock.close();
