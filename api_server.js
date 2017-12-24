@@ -1,5 +1,6 @@
 var net = require('net');
 var pack = require('bufferpack');
+var utf8 = require('utf8');
 var PokeClient = require('pokemon-showdown-api').PokeClient;
 
 var websocket = 'ws://localhost:8000/showdown/websocket';
@@ -16,9 +17,10 @@ function parse_data(data) {
 
 function send_reply(message, conn) {
     var return_payload = JSON.stringify(message);
-    var sendlen = pack.pack('!I', [return_payload.length]);
-    conn.write(sendlen);
-    conn.write(return_payload);
+    var utf_8_len = utf8.encode(return_payload).length;
+    var sendlen = pack.pack('!I', [utf_8_len]);
+    conn.write(sendlen, 'utf-8');
+    conn.write(return_payload, 'utf-8');
 }
 
 function simple_reply(data, conn) {
@@ -89,6 +91,14 @@ function login(payload, conn) {
         }
     });
 
+    client.on('chat:public', function(chat) {
+        for (var i = 0, len = conn.battles.length; i < len; i++) {
+            if (conn.battles[i].room == chat.room) {
+                conn.battles[i].chat = chat.data;
+            }
+        }
+    });
+
     client.on('message', function(message) {
         if (message.type.toString().search('token:request') != -1) {
             for (var i = 0, len = conn.battles.length; i < len; i++) {
@@ -105,15 +115,10 @@ function login(payload, conn) {
                         conn.turn = Number(message.data);
                         conn.battles[i].actions.push([]);
                     } else {
-                        console.log(conn.turn);
                         conn.battles[i].actions[conn.turn].push(message.data);
                     }
                 }
             }
-        }
-
-        if (message.type.toString().search('token:turn') != -1) {
-            console.log(message);
         }
 
         // console.log(message);
@@ -162,36 +167,30 @@ function send_default(payload, conn) {
     send_reply('success', conn);
 }
 
-function battle_get_myteam(payload, conn) {
+function battle_helper(payload, conn, key) {
     for (var i = 0, len = conn.battles.length; i < len; i++) {
         if (conn.battles[i].room == payload.room) {
             reply = {};
-            if ('myteam' in conn.battles[i]) {
-                reply = conn.battles[i].myteam;
+            if (key in conn.battles[i]) {
+                reply = conn.battles[i][key];
             }
 
             send_reply(reply, conn);
             return;
         }
     }
+}
+
+function battle_get_myteam(payload, conn) {
+    battle_helper(payload, conn, 'myteam')
 }
 
 function battle_get_actions(payload, conn) {
-    for (var i = 0, len = conn.battles.length; i < len; i++) {
-        if (conn.battles[i].room == payload.room) {
-            reply = {};
-            if ('actions' in conn.battles[i]) {
-                reply = conn.battles[i].actions;
-            }
-
-            send_reply(reply, conn);
-            return;
-        }
-    }
+    battle_helper(payload, conn, 'actions')
 }
 
 function battle_get_chat(payload, conn) {
-    send_reply('success', conn);
+    battle_helper(payload, conn, 'chat')
 }
 
 function battle_dispatch(payload, conn) {

@@ -15,8 +15,10 @@ done
 
 if $use_nodeenv; then
   npm install -g bufferpack
+  npm install -g utf8
   npm install -g pokemon-showdown-api
 else
   npm install bufferpack
+  npm install utf8
   npm install pokemon-showdown-api
 fi
