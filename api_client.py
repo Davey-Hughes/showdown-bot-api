@@ -75,6 +75,24 @@ class PokeBattle:
     def get_chat(self):
         return self._get_wrapper('get_chat')
 
+    def do_move(self, move=1):
+        if isinstance(move, int):
+            command_msg = '/choose move ' + str(move)
+            self.connection.send_battle_command('do_move', self.room, command_msg)
+        elif isinstance(move, string):
+            return False
+        else:
+            return False
+
+    def do_switch(self, switch=2):
+        if isinstance(switch, int):
+            command_msg = '/choose switch ' + str(switch)
+            self.connection.send_battle_command('do_switch', self.room, command_msg)
+        elif isinstance(switch, string):
+            return False
+        else:
+            return False
+
 class ShowdownConnection:
     def __init__(self):
         self.pokeSock = PokeSockClient()
@@ -116,12 +134,17 @@ class ShowdownConnection:
         result = self.pokeSock.recv()
         self.socket_lock.release()
 
-    def send_battle_command(self, battle_command, room):
-        msg = json.dumps({
+    def send_battle_command(self, battle_command, room, command_msg=None):
+        msg_obj = {
             'command': 'battle_action',
             'battle_command': battle_command,
             'room': room
-        })
+        }
+
+        if (command_msg):
+            msg_obj['command_msg'] = command_msg
+
+        msg = json.dumps(msg_obj)
 
         self.socket_lock.acquire()
         self.pokeSock.send(msg)
