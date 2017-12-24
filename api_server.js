@@ -30,6 +30,7 @@ function login(payload, conn) {
 
     conn.challenges = {};
     conn.challenge_errors = [];
+    conn.battles = [];
 
     client.on('ready', function() {
         client.login(payload.username);
@@ -65,8 +66,14 @@ function login(payload, conn) {
         conn.challenges = message.data;
     });
 
+    client.on('room:title', function(message) {
+        if (message.room.search('battle') != -1) {
+            conn.battles.push(message);
+        }
+    });
+
     client.on('message', function(message) {
-        //console.log(message);
+        // console.log(message);
     });
 
     conn['pokeClient'] = client;
@@ -95,6 +102,10 @@ function get_challenges(conn) {
     send_reply(conn.challenges, conn);
     send_reply(conn.challenge_errors, conn);
     conn.challenge_errors = []
+}
+
+function get_battles(conn) {
+    send_reply(conn.battles, conn);
 }
 
 function send_default(payload, conn) {
@@ -128,6 +139,9 @@ function dispatch(data, conn) {
             break;
         case 'get_challenges':
             get_challenges(conn);
+            break;
+        case 'get_battles':
+            get_battles(conn);
             break;
         case 'send_default':
             send_default(payload, conn);
