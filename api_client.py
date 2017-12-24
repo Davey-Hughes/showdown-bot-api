@@ -75,23 +75,35 @@ class PokeBattle:
     def get_chat(self):
         return self._get_wrapper('get_chat')
 
+    def _command_msg_wrapper(self, battle_command, command_msg):
+        self.connection.send_battle_command(battle_command, self.room, command_msg)
+
     def do_move(self, move=1):
+        command_msg = ''
+
         if isinstance(move, int):
             command_msg = '/choose move ' + str(move)
-            self.connection.send_battle_command('do_move', self.room, command_msg)
         elif isinstance(move, string):
             return False
         else:
             return False
 
+        self._command_msg_wrapper('do_move', command_msg)
+
     def do_switch(self, switch=2):
+        command_msg = ''
+
         if isinstance(switch, int):
             command_msg = '/choose switch ' + str(switch)
-            self.connection.send_battle_command('do_switch', self.room, command_msg)
         elif isinstance(switch, string):
             return False
         else:
             return False
+
+        self._command_msg_wrapper('do_switch', command_msg)
+
+    def do_command_default(self, command_msg):
+        self._command_msg_wrapper('do_command_default', command_msg)
 
 class ShowdownConnection:
     def __init__(self):

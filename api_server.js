@@ -193,13 +193,7 @@ function battle_get_chat(payload, conn) {
     battle_helper(payload, conn, 'chat')
 }
 
-function battle_do_move(payload, conn) {
-    client = conn.pokeClient;
-    client.send(payload.command_msg, payload.room);
-    send_reply('sent', conn);
-}
-
-function battle_do_switch(payload, conn) {
+function battle_do_command(payload, conn) {
     client = conn.pokeClient;
     client.send(payload.command_msg, payload.room);
     send_reply('sent', conn);
@@ -217,10 +211,9 @@ function battle_dispatch(payload, conn) {
             battle_get_chat(payload, conn);
             break;
         case 'do_move':
-            battle_do_move(payload, conn);
-            break;
         case 'do_switch':
-            battle_do_move(payload, conn);
+        case 'do_command_default':
+            battle_do_command(payload, conn);
             break;
         default:
             console.log('battle_command not handled: ' + payload.battle_command);
