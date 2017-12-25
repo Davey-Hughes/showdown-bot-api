@@ -32,6 +32,7 @@ function simple_reply(data, conn) {
 
 function login(payload, conn) {
     client = new PokeClient(websocket, verification);
+    conn.client = client;
     client.connect();
 
     conn.username = payload.username;
@@ -251,6 +252,35 @@ function battle_do_command(payload, conn) {
     send_reply('sent', conn);
 }
 
+function battle_wait_next_turn(payload, conn) {
+    var client = conn.parent_conn.client;
+
+    var wait_helper = function(message) {
+        if (conn.parent_conn.actionList.includes(message.type)) {
+            if (conn.room == message.room) {
+                if (message.type.toString().search('token:turn') != -1) {
+                    turn = Number(message.data);
+                    send_reply(turn, conn);
+                    return;
+                }
+            }
+        }
+
+        client.once('message', wait_helper);
+    };
+
+    if (payload.turn == conn.turn) {
+        client.once('message', wait_helper);
+
+        return;
+    } else if (payload.turn > conn.turn) {
+        send_reply('failed', conn);
+        return;
+    }
+
+    send_reply(conn.turn, conn);
+}
+
 function battle_dispatch(payload, conn) {
     switch (payload.battle_command) {
         case 'get_myteam':
@@ -266,6 +296,9 @@ function battle_dispatch(payload, conn) {
         case 'do_switch':
         case 'do_command_default':
             battle_do_command(payload, conn);
+            break;
+        case 'wait_next_turn':
+            battle_wait_next_turn(payload, conn);
             break;
         default:
             console.log('battle_command not handled: ' + payload.battle_command);
@@ -323,6 +356,6 @@ server.on('connection', function(conn) {
     });
 
     conn.on('close', function(data) {
-        connections.splice(connections.indexOf(conn), 1);
+        // connections.splice(connections.indexOf(conn), 1);
     });
 });

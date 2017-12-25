@@ -44,6 +44,7 @@ class PokeBattle:
         self.parent_conn = parent_conn
         self.room = room
         self.challenger = challenger
+        self.turn = 1
         self.battle_conn = PokeSockClient()
         self.battle_conn.connect(host, port)
 
@@ -129,6 +130,26 @@ class PokeBattle:
         self.send_battle_command('do_switch', command_msg)
         return True
 
+    def sync_turns(self):
+        actions = self.get_actions()
+        self.turn = len(actions) - 1
+
+    def wait_next_turn(self):
+        msg = json.dumps({
+            'command': 'battle_action',
+            'battle_command': 'wait_next_turn',
+            'turn': self.turn
+        })
+
+        self.battle_conn.send(msg)
+        result = self.battle_conn.recv()
+        if isinstance(result, str):
+            return False
+
+        self.turn = result
+        return result
+
+
     def do_command_default(self, command_msg):
         self.send_battle_command('do_command_default', command_msg)
 
@@ -138,7 +159,6 @@ class ShowdownConnection:
         self.battle_lock = Lock()
         self.battles = []
         self.battle_processes = []
-        self.socket_lock = Lock()
 
     def login(self, host, port, username, password=''):
         self.host = host
@@ -152,10 +172,8 @@ class ShowdownConnection:
             'password': password
         })
 
-        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        self.socket_lock.release()
 
         return result == 'success'
 
@@ -170,10 +188,8 @@ class ShowdownConnection:
                 'command': 'logout'
             })
 
-        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        self.socket_lock.release()
 
     def send_challenge(self, user, gamefmt, room=''):
         if room == '':
@@ -190,10 +206,8 @@ class ShowdownConnection:
                 'format': gamefmt
             })
 
-        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        self.socket_lock.release()
 
         # try 10 times (and 10 seconds)
         for i in range(10):
@@ -217,11 +231,9 @@ class ShowdownConnection:
             'command': 'get_challenges'
         })
 
-        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         res_challenges = self.pokeSock.recv()
         res_errors = self.pokeSock.recv()
-        self.socket_lock.release()
 
         return res_challenges, res_errors
 
@@ -230,10 +242,8 @@ class ShowdownConnection:
             'command': 'get_battles'
         })
 
-        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        self.socket_lock.release()
 
         return result
 
@@ -308,10 +318,8 @@ class ShowdownConnection:
                 'showdown_cmd': msg
             })
 
-        self.socket_lock.acquire()
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
-        self.socket_lock.release()
 
     def close(self):
         self.pokeSock.close();
