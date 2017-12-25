@@ -6,6 +6,8 @@ var PokeClient = require('pokemon-showdown-api').PokeClient;
 var websocket = 'ws://localhost:8000/showdown/websocket';
 var verification = 'https://play.pokemonshowdown.com/action.php';
 
+var login_connections = [];
+
 // console.log(typeof(PokeClient.MESSAGE_TYPES.BATTLE.ACTIONS.MAJOR.MOVE));
 
 function parse_data(data) {
@@ -32,11 +34,14 @@ function login(payload, conn) {
     client = new PokeClient(websocket, verification);
     client.connect();
 
+    conn.username = payload.username;
     conn.challenges = {};
     conn.challenge_errors = [];
-    conn.battles = [];
+    conn.battles_pending = [];
+    conn.battle_conns = [];
     conn.actionList = [];
-    conn.turn = 0;
+
+    login_connections.push(conn);
 
     var actions = PokeClient.MESSAGE_TYPES.BATTLE.ACTIONS;
 
@@ -84,38 +89,63 @@ function login(payload, conn) {
 
     client.on('room:title', function(message) {
         if (message.room.search('battle') != -1) {
+            message['chat'] = [];
             message['myteam'] = {};
             message['actions'] = [];
             message.actions.push([]);
-            conn.battles.push(message);
+            message.turn = 0;
+            conn.battles_pending.push(message);
         }
     });
 
     client.on('chat:public', function(chat) {
-        for (var i = 0, len = conn.battles.length; i < len; i++) {
-            if (conn.battles[i].room == chat.room) {
-                conn.battles[i].chat = chat.data;
+        for (var i = 0, len = conn.battle_conns.length; i < len; i++) {
+            if (conn.battle_conns[i].room == chat.room) {
+                conn.battle_conns[i].chat = chat.data;
+                break;
             }
         }
     });
 
     client.on('message', function(message) {
         if (message.type.toString().search('token:request') != -1) {
-            for (var i = 0, len = conn.battles.length; i < len; i++) {
-                if (conn.battles[i].room == message.room) {
-                    conn.battles[i].myteam = message.data;
+            for (var i = 0, len = conn.battle_conns.length; i < len; i++) {
+                if (conn.battle_conns[i].room == message.room) {
+                    conn.battle_conns[i].myteam = message.data;
+                    break;
                 }
             }
         }
 
         if (conn.actionList.includes(message.type)) {
-            for (var i = 0, len = conn.battles.length; i < len; i++) {
-                if (conn.battles[i].room == message.room) {
+            var need_pending = 1;
+            for (var i = 0, len = conn.battle_conns.length; i < len; i++) {
+                if (conn.battle_conns[i].room == message.room) {
                     if (message.type.toString().search('token:turn') != -1) {
-                        conn.turn = Number(message.data);
-                        conn.battles[i].actions.push([]);
+                        conn.battle_conns[i].turn = Number(message.data);
+                        conn.battle_conns[i].actions.push([]);
                     } else {
-                        conn.battles[i].actions[conn.turn].push(message.data);
+                        var turn = conn.battle_conns[i].turn;
+                        conn.battle_conns[i].actions[turn].push(message.data);
+                    }
+
+                    need_pending = 0;
+                    break;
+                }
+            }
+
+            if (need_pending) {
+                for (var i = 0, len = conn.battles_pending.length; i < len; i++) {
+                    if (conn.battles_pending[i].room == message.room) {
+                        if (message.type.toString().search('token:turn') != -1) {
+                            conn.battles_pending[i].turn = Number(message.data);
+                            conn.battles_pending[i].actions.push([]);
+                        } else {
+                            var turn = conn.battles_pending[i].turn;
+                            conn.battles_pending[i].actions[turn].push(message.data);
+                        }
+
+                        break;
                     }
                 }
             }
@@ -123,6 +153,7 @@ function login(payload, conn) {
 
         // console.log(message);
     });
+
 
     conn['pokeClient'] = client;
 }
@@ -153,7 +184,7 @@ function get_challenges(conn) {
 }
 
 function get_battles(conn) {
-    send_reply(conn.battles, conn);
+    send_reply(conn.battles_pending, conn);
 }
 
 function send_default(payload, conn) {
@@ -167,18 +198,39 @@ function send_default(payload, conn) {
     send_reply('success', conn);
 }
 
-function battle_helper(payload, conn, key) {
-    for (var i = 0, len = conn.battles.length; i < len; i++) {
-        if (conn.battles[i].room == payload.room) {
-            reply = {};
-            if (key in conn.battles[i]) {
-                reply = conn.battles[i][key];
-            }
+function battle_start(payload, conn) {
+    conn.room = payload.room;
 
-            send_reply(reply, conn);
-            return;
+    for (var i = 0, len = login_connections.length; i < len; i++) {
+        if (login_connections[i].username == payload.username) {
+            conn.parent_conn = login_connections[i];
+            conn.parent_conn.battle_conns.push(conn);
+            break;
         }
     }
+
+    for (var i = 0, len = conn.parent_conn.battles_pending.length; i < len; i++) {
+        if (conn.parent_conn.battles_pending[i].room == conn.room) {
+            var pending = conn.parent_conn.battles_pending[i];
+            conn['chat'] = pending.chat;
+            conn['myteam'] = pending.myteam;
+            conn['actions'] = pending.actions;
+            conn.turn = pending.turn;
+            break;
+        }
+    }
+
+    send_reply('success', conn);
+}
+
+
+function battle_helper(payload, conn, key) {
+    reply = {};
+    if (key in conn) {
+        reply = conn[key];
+    }
+
+    send_reply(reply, conn);
 }
 
 function battle_get_myteam(payload, conn) {
@@ -194,7 +246,7 @@ function battle_get_chat(payload, conn) {
 }
 
 function battle_do_command(payload, conn) {
-    client = conn.pokeClient;
+    client = conn.parent_conn.pokeClient;
     client.send(payload.command_msg, payload.room);
     send_reply('sent', conn);
 }
@@ -243,6 +295,9 @@ function dispatch(data, conn) {
         case 'get_challenges':
             get_challenges(conn);
             break;
+        case 'battle_start':
+            battle_start(payload, conn);
+            break;
         case 'get_battles':
             get_battles(conn);
             break;
@@ -259,16 +314,11 @@ function dispatch(data, conn) {
     }
 }
 
-var connections = [];
-
 var server = net.createServer();
 server.listen(9001, 'localhost', 100);
 
 server.on('connection', function(conn) {
-    connections.push(conn);
-
     conn.on('data', function(data) {
-        //simple_reply(data, conn);
         dispatch(data, conn);
     });
 

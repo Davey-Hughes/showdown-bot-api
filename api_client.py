@@ -40,25 +40,36 @@ class PokeSockClient:
         self.sock.close()
 
 class PokeBattle:
-    def __init__(self, connection, room, challenger):
-        self.connection = connection
+    def __init__(self, parent_conn, room, challenger, host, port):
+        self.parent_conn = parent_conn
         self.room = room
         self.challenger = challenger
+        self.battle_conn = PokeSockClient()
+        self.battle_conn.connect(host, port)
+
+        msg = json.dumps({
+            'command': 'battle_start',
+            'username': self.parent_conn.username,
+            'room': room
+        })
+
+        self.battle_conn.send(msg)
+        result = self.battle_conn.recv()
 
     # TODO add safety so this can only be called properly
     def _wrapper(self, func):
         func(self)
 
-        self.connection.battle_lock.acquire()
-        self.connection.battles.remove(self)
-        self.connection.battle_lock.release()
+        self.parent_conn.battle_lock.acquire()
+        self.parent_conn.battles.remove(self)
+        self.parent_conn.battle_lock.release()
         exit(0)
 
     # tries to get data for up to 10 seconds. returns data if found, else
     # returns None
     def _get_wrapper(self, battle_command):
         for i in range(10):
-            result = self.connection.send_battle_command(battle_command, self.room)
+            result = self.send_battle_command(battle_command, self.room)
             if result != {}:
                 return result
 
@@ -75,8 +86,22 @@ class PokeBattle:
     def get_chat(self):
         return self._get_wrapper('get_chat')
 
-    def _command_msg_wrapper(self, battle_command, command_msg):
-        self.connection.send_battle_command(battle_command, self.room, command_msg)
+    def send_battle_command(self, battle_command, command_msg=None):
+        msg_obj = {
+            'command': 'battle_action',
+            'battle_command': battle_command,
+            'room': self.room
+        }
+
+        if (command_msg):
+            msg_obj['command_msg'] = command_msg
+
+        msg = json.dumps(msg_obj)
+
+        self.battle_conn.send(msg)
+        result = self.battle_conn.recv()
+
+        return result
 
     def do_move(self, move=1):
         command_msg = ''
@@ -88,7 +113,8 @@ class PokeBattle:
         else:
             return False
 
-        self._command_msg_wrapper('do_move', command_msg)
+        self.send_battle_command('do_move', command_msg)
+        return True
 
     def do_switch(self, switch=2):
         command_msg = ''
@@ -100,10 +126,11 @@ class PokeBattle:
         else:
             return False
 
-        self._command_msg_wrapper('do_switch', command_msg)
+        self.send_battle_command('do_switch', command_msg)
+        return True
 
     def do_command_default(self, command_msg):
-        self._command_msg_wrapper('do_command_default', command_msg)
+        self.send_battle_command('do_command_default', command_msg)
 
 class ShowdownConnection:
     def __init__(self):
@@ -114,6 +141,8 @@ class ShowdownConnection:
         self.socket_lock = Lock()
 
     def login(self, host, port, username, password=''):
+        self.host = host
+        self.port = port
         self.username = username
         self.pokeSock.connect(host, port)
 
@@ -145,25 +174,6 @@ class ShowdownConnection:
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
         self.socket_lock.release()
-
-    def send_battle_command(self, battle_command, room, command_msg=None):
-        msg_obj = {
-            'command': 'battle_action',
-            'battle_command': battle_command,
-            'room': room
-        }
-
-        if (command_msg):
-            msg_obj['command_msg'] = command_msg
-
-        msg = json.dumps(msg_obj)
-
-        self.socket_lock.acquire()
-        self.pokeSock.send(msg)
-        result = self.pokeSock.recv()
-        self.socket_lock.release()
-
-        return result
 
     def send_challenge(self, user, gamefmt, room=''):
         if room == '':
@@ -247,7 +257,7 @@ class ShowdownConnection:
                         if self.username not in user:
                             challenger += user
 
-                    battle = PokeBattle(self, room, challenger)
+                    battle = PokeBattle(self, room, challenger, self.host, self.port)
                     self.battle_lock.acquire()
                     self.battles.append(battle)
                     self.battle_lock.release()
