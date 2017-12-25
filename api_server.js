@@ -171,7 +171,7 @@ function login(payload, conn) {
             }
         }
 
-        // console.log(message);
+        console.log(message);
     });
 
 
@@ -277,12 +277,37 @@ function battle_do_command(payload, conn) {
 function battle_wait_next_turn(payload, conn) {
     var client = conn.parent_conn.client;
 
+    var actions_length = conn.actions.length;
+    var turn = conn.actions[actions_length - 1];
+    var turn_length = turn.length;
+
     var wait_helper = function(message) {
         if (conn.parent_conn.actionList.includes(message.type)) {
             if (conn.room == message.room) {
                 if (message.type.toString().search('token:turn') != -1) {
                     turn = Number(message.data);
                     send_reply(turn, conn);
+                    return;
+                } else if (message.type.toString().search('token:faint') != -1) {
+                    send_reply('fainted', conn);
+                    return;
+                } else if (message.type.toString().search('token:win') != -1) {
+                    send_reply('win', conn);
+                    return;
+                } else if (message.type.toString().search('token:tie') != -1) {
+                    send_reply('tie', conn);
+                    return;
+                } else if (message.type.toString().search('token:teampreview') != -1) {
+                    send_reply('teampreview', conn);
+                    return;
+                } else if (message.type.toString().search('token:error') != -1) {
+                    for (var i = turn_length - 1; i >= 0; i--) {
+                        if (turn[i].msg_type == 'error' && !('seen' in turn[i])) {
+                            turn[i]['seen'] = true;
+                            break;
+                        }
+                    }
+                    send_reply('error', conn);
                     return;
                 }
             }
@@ -292,6 +317,17 @@ function battle_wait_next_turn(payload, conn) {
     };
 
     if (payload.turn == conn.turn) {
+        for (var i = turn_length - 1; i >= 0; i--) {
+            if (turn[i].msg_type == 'error' && !('seen' in turn[i])) {
+                turn[i]['seen'] = true;
+                send_reply('error', conn);
+                return;
+            } else if (turn[i].msg_type == 'teampreview') {
+                send_reply('teampreview', conn);
+                return;
+            }
+        }
+
         client.once('message', wait_helper);
 
         return;

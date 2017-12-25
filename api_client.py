@@ -60,7 +60,7 @@ class PokeBattle:
 
     # TODO add safety so this can only be called properly
     def _wrapper(self, func):
-        self.wait_turn_one()
+        result = self.wait_turn_one()
         func(self)
 
         self.parent_conn.battle_lock.acquire()
@@ -148,10 +148,9 @@ class PokeBattle:
 
         self.battle_conn.send(msg)
         result = self.battle_conn.recv()
-        if isinstance(result, str):
-            return False
+        if isinstance(result, int):
+            self.turn = result
 
-        self.turn = result
         return result
 
     def do_command_default(self, command_msg):
