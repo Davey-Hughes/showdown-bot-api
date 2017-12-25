@@ -40,18 +40,19 @@ class PokeSockClient:
         self.sock.close()
 
 class PokeBattle:
-    def __init__(self, parent_conn, room, challenger, host, port):
+    def __init__(self, parent_conn, room, challenger, host, port, open_wndw):
         self.parent_conn = parent_conn
         self.room = room
         self.challenger = challenger
-        self.turn = 1
+        self.turn = 0
         self.battle_conn = PokeSockClient()
         self.battle_conn.connect(host, port)
 
         msg = json.dumps({
             'command': 'battle_start',
             'username': self.parent_conn.username,
-            'room': room
+            'room': room,
+            'open_wndw': open_wndw
         })
 
         self.battle_conn.send(msg)
@@ -59,12 +60,16 @@ class PokeBattle:
 
     # TODO add safety so this can only be called properly
     def _wrapper(self, func):
+        self.wait_turn_one()
         func(self)
 
         self.parent_conn.battle_lock.acquire()
         self.parent_conn.battles.remove(self)
         self.parent_conn.battle_lock.release()
         exit(0)
+
+    def wait_turn_one(self):
+        self.wait_next_turn()
 
     # tries to get data for up to 10 seconds. returns data if found, else
     # returns None
@@ -148,7 +153,6 @@ class PokeBattle:
 
         self.turn = result
         return result
-
 
     def do_command_default(self, command_msg):
         self.send_battle_command('do_command_default', command_msg)
@@ -254,7 +258,7 @@ class ShowdownConnection:
 
     # if a timeout is passed in, this function will try to accept a battle for
     # the amount of seconds passed in, default 60 seconds
-    def wait_for_battle(self, accept, timeout=60):
+    def wait_for_battle(self, accept, open_wndw=False, timeout=60):
         if isinstance(accept, list):
             return None
         elif callable(accept):
@@ -267,7 +271,8 @@ class ShowdownConnection:
                         if self.username not in user:
                             challenger += user
 
-                    battle = PokeBattle(self, room, challenger, self.host, self.port)
+                    battle = PokeBattle(self, room, challenger, \
+                                        self.host, self.port, open_wndw)
                     self.battle_lock.acquire()
                     self.battles.append(battle)
                     self.battle_lock.release()

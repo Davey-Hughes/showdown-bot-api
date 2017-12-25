@@ -1,14 +1,14 @@
 var net = require('net');
+var open = require('open');
 var pack = require('bufferpack');
 var utf8 = require('utf8');
 var PokeClient = require('pokemon-showdown-api').PokeClient;
 
+var base_url = 'http://localhost.psim.us/'
 var websocket = 'ws://localhost:8000/showdown/websocket';
 var verification = 'https://play.pokemonshowdown.com/action.php';
 
 var login_connections = [];
-
-// console.log(typeof(PokeClient.MESSAGE_TYPES.BATTLE.ACTIONS.MAJOR.MOVE));
 
 function parse_data(data) {
     var lengthbuf = data.slice(0, 4);
@@ -44,14 +44,21 @@ function login(payload, conn) {
 
     login_connections.push(conn);
 
-    var actions = PokeClient.MESSAGE_TYPES.BATTLE.ACTIONS;
+    var battle_msgs = PokeClient.MESSAGE_TYPES.BATTLE
+    var action_msgs = battle_msgs.ACTIONS;
 
-    Object.keys(actions.MAJOR).forEach(function(key, index) {
-        conn.actionList.push(actions.MAJOR[key]);
+    Object.keys(battle_msgs).forEach(function(key, index) {
+        if (key != 'ACTIONS' && key != 'REQUEST') {
+            conn.actionList.push(battle_msgs[key]);
+        }
     });
 
-    Object.keys(actions.MINOR).forEach(function(key, index) {
-        conn.actionList.push(actions.MINOR[key]);
+    Object.keys(action_msgs.MAJOR).forEach(function(key, index) {
+        conn.actionList.push(action_msgs.MAJOR[key]);
+    });
+
+    Object.keys(action_msgs.MINOR).forEach(function(key, index) {
+        conn.actionList.push(action_msgs.MINOR[key]);
     });
 
     client.on('ready', function() {
@@ -69,6 +76,7 @@ function login(payload, conn) {
     });
 
     client.on('chat:private', function(message) {
+        console.log(message);
         if ('data' in message && 'message' in message.data) {
             if (message.data.message.search('/error') != -1 &&
                 message.data.message.search('not found') != -1) {
@@ -118,6 +126,7 @@ function login(payload, conn) {
             }
         }
 
+        // TODO condense these?
         if (conn.actionList.includes(message.type)) {
             var need_pending = 1;
             for (var i = 0, len = conn.battle_conns.length; i < len; i++) {
@@ -127,6 +136,11 @@ function login(payload, conn) {
                         conn.battle_conns[i].actions.push([]);
                     } else {
                         var turn = conn.battle_conns[i].turn;
+                        var type = message.type.toString().split(':')[2].replace(')', '');
+                        if (!('data' in message)) {
+                            message.data = {}
+                        }
+                        message.data['msg_type'] = type;
                         conn.battle_conns[i].actions[turn].push(message.data);
                     }
 
@@ -143,6 +157,11 @@ function login(payload, conn) {
                             conn.battles_pending[i].actions.push([]);
                         } else {
                             var turn = conn.battles_pending[i].turn;
+                            var type = message.type.toString().split(':')[2].replace(')', '');
+                            if (!('data' in message)) {
+                                message.data = {}
+                            }
+                            message.data['msg_type'] = type;
                             conn.battles_pending[i].actions[turn].push(message.data);
                         }
 
@@ -201,6 +220,9 @@ function send_default(payload, conn) {
 
 function battle_start(payload, conn) {
     conn.room = payload.room;
+    if (payload.open_wndw) {
+        open(base_url + conn.room);
+    }
 
     for (var i = 0, len = login_connections.length; i < len; i++) {
         if (login_connections[i].username == payload.username) {
