@@ -4,6 +4,8 @@ import json
 import time
 from multiprocessing import Process, Lock
 
+import loadteam
+
 class PokeSockClient:
     def __init__(self, sock=None):
         if sock is None:
@@ -60,16 +62,12 @@ class PokeBattle:
 
     # TODO add safety so this can only be called properly
     def _wrapper(self, func):
-        result = self.wait_turn_one()
         func(self)
 
         self.parent_conn.battle_lock.acquire()
         self.parent_conn.battles.remove(self)
         self.parent_conn.battle_lock.release()
         exit(0)
-
-    def wait_turn_one(self):
-        self.wait_next_turn()
 
     # tries to get data for up to 10 seconds. returns data if found, else
     # returns None
@@ -139,11 +137,12 @@ class PokeBattle:
         actions = self.get_actions()
         self.turn = len(actions) - 1
 
-    def wait_next_turn(self):
+    def wait_next_turn(self, timeout=0):
         msg = json.dumps({
             'command': 'battle_action',
             'battle_command': 'wait_next_turn',
-            'turn': self.turn
+            'turn': self.turn,
+            'timeout': timeout
         })
 
         self.battle_conn.send(msg)
@@ -151,6 +150,19 @@ class PokeBattle:
         if isinstance(result, int):
             self.turn = result
 
+        return result
+
+    def send_teampreview(self, index):
+        msg = json.dumps({
+            'command': 'battle_action',
+            'battle_command': 'send_teampreview',
+            'room': self.room,
+            'index': index
+        })
+
+        self.battle_conn.send(msg)
+        result = self.battle_conn.recv()
+        self.sync_turns()
         return result
 
     def do_command_default(self, command_msg):
@@ -324,6 +336,25 @@ class ShowdownConnection:
 
         self.pokeSock.send(msg)
         result = self.pokeSock.recv()
+
+    def team_from_file(self, filepath):
+        return loadteam.load_team(filepath)
+
+    def send_useteam(self, filepath='', utm_str=''):
+        team = ''
+        if filepath != '':
+            team = self.team_from_file(filepath)
+            if team == -1:
+                return False
+        elif utm_str != '':
+            team = utm_str
+        else:
+            return False
+
+        msg = '/utm ' + team
+        self.send_default(msg, 'global')
+        return True
+
 
     def close(self):
         self.pokeSock.close();

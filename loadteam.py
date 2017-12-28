@@ -24,69 +24,80 @@ def parse_stats(line, vs_str):
 def parse_team(filepath):
     team = []
 
-    with open(filepath, 'r') as f:
-        pokes = f.read().split('\n\n')
-        for poke in pokes:
-            poke = poke.split('\n')
-            cur_poke = {}
-            cur_poke['moves'] = []
+    try:
+        f = open(filepath, 'r')
+    except FileNotFoundError:
+        return -1
 
-            for i, line in enumerate(poke):
-                line = line.lstrip(' ')
+    pokes = f.read().split('\n\n')
+    for poke in pokes:
+        poke = poke.split('\n')
+        cur_poke = {}
+        cur_poke['moves'] = []
 
-                if i == 0:
-                    if '@' in line:
-                        at_index = line.find('@')
-                        cur_poke['item'] = line[at_index + 2:]
-                        line = line[:at_index]
+        for i, line in enumerate(poke):
+            line = line.lstrip(' ')
 
-                    if '(F)' in line:
-                        cur_poke['gender'] = 'F'
-                        line = line.replace('(F)', '').lstrip().rstrip()
-                    elif '(M)' in line:
-                        cur_poke['gender'] = 'M'
-                        line = line.replace('(M)', '').lstrip().rstrip()
+            if i == 0:
+                if '@' in line:
+                    at_index = line.find('@')
+                    cur_poke['item'] = line[at_index + 2:]
+                    line = line[:at_index]
 
-                    line = line.rstrip().split(' ')
-                    if len(line) == 1:
-                        cur_poke['species'] = line[0]
-                    else:
-                        cur_poke['name'] = line[0]
-                        cur_poke['species'] = line[1].replace('(', '').replace(')', '')
+                if '(F)' in line:
+                    cur_poke['gender'] = 'F'
+                    line = line.replace('(F)', '').lstrip().rstrip()
+                elif '(M)' in line:
+                    cur_poke['gender'] = 'M'
+                    line = line.replace('(M)', '').lstrip().rstrip()
 
-                elif 'Ability:' in line:
-                    cur_poke['ability'] = line.replace('Ability:', '').lstrip(' ')
+                line = line.rstrip().split(' ')
+                if len(line) == 1:
+                    cur_poke['species'] = line[0]
+                else:
+                    cur_poke['name'] = line[0]
+                    cur_poke['species'] = line[1].replace('(', '').replace(')', '')
+
+            elif 'Ability:' in line:
+                cur_poke['ability'] = line.replace('Ability:', '').lstrip(' ')
 
 
-                elif 'Level: ' in line:
-                    cur_poke['level'] = int(line.replace('Level: ', '').lstrip(' '))
+            elif 'Level: ' in line:
+                cur_poke['level'] = int(line.replace('Level: ', '').lstrip(' '))
 
-                elif 'Shiny: ' in line:
-                    shiny = line.replace('Shiny: ', '').lstrip(' ')
-                    if shiny.lower() == 'yes':
-                        cur_poke['shiny'] = True
+            elif 'Shiny: ' in line:
+                shiny = line.replace('Shiny: ', '').lstrip(' ')
+                if shiny.lower() == 'yes':
+                    cur_poke['shiny'] = True
 
-                elif 'Happiness: ' in line:
-                    cur_poke['happiness'] = int(line.replace('Happiness: ', '').lstrip(' '))
+            elif 'Happiness: ' in line:
+                cur_poke['happiness'] = int(line.replace('Happiness: ', '').lstrip(' '))
 
-                elif 'EVs: ' in line:
-                    cur_poke['evs'] = parse_stats(line, 'EVs')
+            elif 'EVs: ' in line:
+                cur_poke['evs'] = parse_stats(line, 'EVs')
 
-                elif 'IVs: ' in line:
-                    cur_poke['ivs'] = parse_stats(line, 'IVs')
+            elif 'IVs: ' in line:
+                cur_poke['ivs'] = parse_stats(line, 'IVs')
 
-                elif ' Nature' in line:
-                    cur_poke['nature'] = line.replace(' Nature', '').lstrip(' ')
+            elif ' Nature' in line:
+                cur_poke['nature'] = line.replace(' Nature', '').lstrip(' ')
 
-                elif len(line) and line[0] == '-':
-                    line = line[1:].lstrip(' ')
-                    cur_poke['moves'].append(line)
+            elif len(line) and line[0] == '-':
+                line = line[1:].lstrip(' ')
+                cur_poke['moves'].append(line)
 
-            team.append(cur_poke)
+        team.append(cur_poke)
 
     return team
 
-def packTeam(team):
+def pack_team(team):
     json_team = json.dumps(team)
     p = subprocess.run(['node', 'packteam.js', json_team], stdout=subprocess.PIPE)
     return p.stdout.decode('utf-8').replace('\n', '')
+
+def load_team(filepath):
+    team = parse_team(filepath)
+    if team == -1:
+        return team
+
+    return pack_team(team)

@@ -9,6 +9,24 @@ var websocket = 'ws://localhost:8000/showdown/websocket';
 var verification = 'https://play.pokemonshowdown.com/action.php';
 
 var login_connections = [];
+var action_list = [];
+
+var battle_msgs = PokeClient.MESSAGE_TYPES.BATTLE
+var action_msgs = battle_msgs.ACTIONS;
+
+Object.keys(battle_msgs).forEach(function(key, index) {
+    if (key != 'ACTIONS' && key != 'REQUEST') {
+        action_list.push(battle_msgs[key]);
+    }
+});
+
+Object.keys(action_msgs.MAJOR).forEach(function(key, index) {
+    action_list.push(action_msgs.MAJOR[key]);
+});
+
+Object.keys(action_msgs.MINOR).forEach(function(key, index) {
+    action_list.push(action_msgs.MINOR[key]);
+});
 
 function parse_data(data) {
     var lengthbuf = data.slice(0, 4);
@@ -21,8 +39,12 @@ function send_reply(message, conn) {
     var return_payload = JSON.stringify(message);
     var utf_8_len = utf8.encode(return_payload).length;
     var sendlen = pack.pack('!I', [utf_8_len]);
-    conn.write(sendlen, 'utf-8');
-    conn.write(return_payload, 'utf-8');
+
+    try {
+        conn.write(sendlen, 'utf-8');
+        conn.write(return_payload, 'utf-8');
+    } catch (e) {
+    }
 }
 
 function simple_reply(data, conn) {
@@ -40,26 +62,8 @@ function login(payload, conn) {
     conn.challenge_errors = [];
     conn.battles_pending = [];
     conn.battle_conns = [];
-    conn.actionList = [];
 
     login_connections.push(conn);
-
-    var battle_msgs = PokeClient.MESSAGE_TYPES.BATTLE
-    var action_msgs = battle_msgs.ACTIONS;
-
-    Object.keys(battle_msgs).forEach(function(key, index) {
-        if (key != 'ACTIONS' && key != 'REQUEST') {
-            conn.actionList.push(battle_msgs[key]);
-        }
-    });
-
-    Object.keys(action_msgs.MAJOR).forEach(function(key, index) {
-        conn.actionList.push(action_msgs.MAJOR[key]);
-    });
-
-    Object.keys(action_msgs.MINOR).forEach(function(key, index) {
-        conn.actionList.push(action_msgs.MINOR[key]);
-    });
 
     client.on('ready', function() {
         client.login(payload.username);
@@ -76,7 +80,6 @@ function login(payload, conn) {
     });
 
     client.on('chat:private', function(message) {
-        console.log(message);
         if ('data' in message && 'message' in message.data) {
             if (message.data.message.search('/error') != -1 &&
                 message.data.message.search('not found') != -1) {
@@ -103,7 +106,9 @@ function login(payload, conn) {
             message['actions'] = [];
             message.actions.push([]);
             message.turn = 0;
+            console.log(conn.battles_pending);
             conn.battles_pending.push(message);
+            console.log(conn.battles_pending);
         }
     });
 
@@ -127,7 +132,7 @@ function login(payload, conn) {
         }
 
         // TODO condense these?
-        if (conn.actionList.includes(message.type)) {
+        if (action_list.includes(message.type)) {
             var need_pending = 1;
             for (var i = 0, len = conn.battle_conns.length; i < len; i++) {
                 if (conn.battle_conns[i].room == message.room) {
@@ -171,9 +176,24 @@ function login(payload, conn) {
             }
         }
 
-        console.log(message);
+        // console.log(message);
     });
 
+    conn.on('close', function(data) {
+        client.send('/logout', 'global');
+        console.log(conn.username + ' logged out');
+
+        for (var i = 0, len = login_connections.length; i < len; i++) {
+            if (login_connections[i].username == conn.username) {
+                login_connections.splice(i, 1);
+                break;
+            }
+        }
+    });
+
+    client.on('internal:send', function(message) {
+        console.log(message);
+    });
 
     conn['pokeClient'] = client;
 }
@@ -251,6 +271,13 @@ function battle_helper(payload, conn, key) {
     reply = {};
     if (key in conn) {
         reply = conn[key];
+    } else {
+        for (var i = 0, len = conn.parent_conn.battles_pending.length; i < len; i++) {
+            if (conn.parent_conn.battles_pending[i].room == conn.room) {
+                reply = conn.parent_conn.battles_pending[i][key];
+                break;
+            }
+        }
     }
 
     send_reply(reply, conn);
@@ -276,28 +303,43 @@ function battle_do_command(payload, conn) {
 
 function battle_wait_next_turn(payload, conn) {
     var client = conn.parent_conn.client;
+    var timeout_event_flag = true;
 
-    var actions_length = conn.actions.length;
-    var turn = conn.actions[actions_length - 1];
-    var turn_length = turn.length;
+    var timeout_helper = function() {
+        if (!timeout_event_flag) {
+            return;
+        }
+
+        timeout_event_flag = false;
+
+        send_reply('timeout', conn);
+    };
 
     var wait_helper = function(message) {
-        if (conn.parent_conn.actionList.includes(message.type)) {
+        if (!timeout_event_flag) {
+            return;
+        }
+        if (action_list.includes(message.type)) {
             if (conn.room == message.room) {
                 if (message.type.toString().search('token:turn') != -1) {
                     turn = Number(message.data);
+                    timeout_event_flag = false;
                     send_reply(turn, conn);
                     return;
                 } else if (message.type.toString().search('token:faint') != -1) {
+                    timeout_event_flag = false;
                     send_reply('fainted', conn);
                     return;
                 } else if (message.type.toString().search('token:win') != -1) {
+                    timeout_event_flag = false;
                     send_reply('win', conn);
                     return;
                 } else if (message.type.toString().search('token:tie') != -1) {
+                    timeout_event_flag = false;
                     send_reply('tie', conn);
                     return;
                 } else if (message.type.toString().search('token:teampreview') != -1) {
+                    timeout_event_flag = false;
                     send_reply('teampreview', conn);
                     return;
                 } else if (message.type.toString().search('token:error') != -1) {
@@ -307,6 +349,7 @@ function battle_wait_next_turn(payload, conn) {
                             break;
                         }
                     }
+                    timeout_event_flag = false;
                     send_reply('error', conn);
                     return;
                 }
@@ -317,26 +360,58 @@ function battle_wait_next_turn(payload, conn) {
     };
 
     if (payload.turn == conn.turn) {
-        for (var i = turn_length - 1; i >= 0; i--) {
-            if (turn[i].msg_type == 'error' && !('seen' in turn[i])) {
-                turn[i]['seen'] = true;
-                send_reply('error', conn);
-                return;
-            } else if (turn[i].msg_type == 'teampreview') {
-                send_reply('teampreview', conn);
-                return;
+        if ('actions' in conn) {
+            var actions_length = conn.actions.length;
+            var turn = conn.actions[actions_length - 1];
+            var turn_length = turn.length;
+
+            for (var i = turn_length - 1; i >= 0; i--) {
+                if (turn[i].msg_type == 'error' && !('seen' in turn[i])) {
+                    turn[i]['seen'] = true;
+                    send_reply('error', conn);
+                    return;
+                } else if (turn[i].msg_type == 'teampreview') {
+                    send_reply('teampreview', conn);
+                    return;
+                }
             }
         }
 
+        if (payload.timeout > 0) {
+            setTimeout(timeout_helper, payload.timeout);
+        }
         client.once('message', wait_helper);
 
         return;
     } else if (payload.turn > conn.turn) {
         send_reply('failed', conn);
         return;
+    } else if (payload.turn < conn.turn) {
+        send_reply(conn.turn, conn);
     }
 
-    send_reply(conn.turn, conn);
+    send_reply('undefined', conn);
+}
+
+function battle_send_teampreview(payload, conn) {
+    var client = conn.parent_conn.client;
+
+    var turn_helper = function(message) {
+        if (conn.room == message.room) {
+            if (message.type.toString().search('token:turn') != -1) {
+                send_reply('success', conn);
+                return;
+            } else if (message.type.toString().search('token:error') != -1) {
+                send_reply('failed', conn);
+                return;
+            }
+        }
+        client.once('message', turn_helper);
+    };
+
+    client.once('message', turn_helper);
+
+    client.send('/team ' + payload.index, payload.room);
 }
 
 function battle_dispatch(payload, conn) {
@@ -357,6 +432,9 @@ function battle_dispatch(payload, conn) {
             break;
         case 'wait_next_turn':
             battle_wait_next_turn(payload, conn);
+            break;
+        case 'send_teampreview':
+            battle_send_teampreview(payload, conn);
             break;
         default:
             console.log('battle_command not handled: ' + payload.battle_command);
@@ -413,7 +491,10 @@ server.on('connection', function(conn) {
         dispatch(data, conn);
     });
 
+    conn.on('error', function(error) {
+        console.log(error);
+    });
+
     conn.on('close', function(data) {
-        // connections.splice(connections.indexOf(conn), 1);
     });
 });
