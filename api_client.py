@@ -152,12 +152,13 @@ class PokeBattle:
 
         return result
 
-    def send_teampreview(self, index):
+    def send_teampreview(self, index, timeout=0):
         msg = json.dumps({
             'command': 'battle_action',
             'battle_command': 'send_teampreview',
             'room': self.room,
-            'index': index
+            'index': index,
+            'timeout': timeout
         })
 
         self.battle_conn.send(msg)

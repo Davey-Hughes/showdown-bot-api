@@ -395,19 +395,36 @@ function battle_wait_next_turn(payload, conn) {
 
 function battle_send_teampreview(payload, conn) {
     var client = conn.parent_conn.client;
+    var timeout_event_flag = true;
+
+    var timeout_helper = function() {
+        if (!timeout_event_flag) {
+            return;
+        }
+
+        timeout_event_flag = false;
+
+        send_reply('timeout', conn);
+    };
 
     var turn_helper = function(message) {
         if (conn.room == message.room) {
             if (message.type.toString().search('token:turn') != -1) {
+                timeout_event_flag = false;
                 send_reply('success', conn);
                 return;
             } else if (message.type.toString().search('token:error') != -1) {
+                timeout_event_flag = false;
                 send_reply('failed', conn);
                 return;
             }
         }
         client.once('message', turn_helper);
     };
+
+    if (payload.timeout > 0) {
+        setTimeout(timeout_helper, payload.timeout);
+    }
 
     client.once('message', turn_helper);
 
